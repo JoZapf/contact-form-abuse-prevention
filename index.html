@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Contact Form with Abuse Prevention - Documentation</title>
+    <meta name="description" content="Production-ready, GDPR-compliant contact form system with comprehensive spam protection, extended logging, IP blocklist management, and automated anonymization.">
+    <style>
+        :root {
+            --primary: #3498db;
+            --success: #27ae60;
+            --danger: #e74c3c;
+            --warning: #f39c12;
+            --dark: #0d1117;
+            --card-bg: rgba(22, 27, 34, 0.8);
+            --card-border: rgba(48, 54, 61, 0.8);
+            --text: #e9ecef;
+            --text-muted: #8b949e;
+            --code-bg: rgba(110, 118, 129, 0.1);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--dark);
+        }
+        
+        /* Header & Navigation */
+        header {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--card-border);
+            padding: 20px 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+        
+        nav {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .logo {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            list-style: none;
+            flex-wrap: wrap;
+        }
+        
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+        
+        /* Main Content */
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            margin-bottom: 40px;
+        }
+        
+        .hero h1 {
+            font-size: clamp(2em, 5vw, 3em);
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero p {
+            font-size: clamp(1em, 2.5vw, 1.2em);
+            color: var(--text-muted);
+            max-width: 800px;
+            margin: 0 auto 30px;
+        }
+        
+        .badges {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        
+        .badge-blue { background: var(--primary); color: white; }
+        .badge-green { background: var(--success); color: white; }
+        .badge-red { background: var(--danger); color: white; }
+        
+        /* Sections */
+        section {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            color: var(--primary);
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--card-border);
+        }
+        
+        h3 {
+            color: var(--text);
+            font-size: 1.5em;
+            margin: 30px 0 15px;
+        }
+        
+        h4 {
+            color: var(--text);
+            font-size: 1.2em;
+            margin: 20px 0 10px;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            color: var(--text-muted);
+        }
+        
+        /* Lists */
+        ul, ol {
+            margin: 15px 0 15px 30px;
+            color: var(--text-muted);
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+        
+        /* Code Blocks */
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        
+        code {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: var(--primary);
+        }
+        
+        pre code {
+            color: var(--text);
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: rgba(0,0,0,0.2);
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid var(--card-border);
+        }
+        
+        th {
+            background: rgba(52, 152, 219, 0.1);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        /* Tree/Diagram */
+        .tree {
+            background: var(--code-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            line-height: 1.4;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        
+        /* Feature Grid */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .feature-card {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 20px;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+        }
+        
+        .feature-card h4 {
+            color: var(--primary);
+            margin-top: 0;
+        }
+        
+        /* Links */
+        a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Special Elements */
+        .new-badge {
+            display: inline-block;
+            background: var(--success);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        
+        .highlight-box {
+            background: rgba(52, 152, 219, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--card-bg);
+            border-top: 1px solid var(--card-border);
+            padding: 40px 20px;
+            margin-top: 60px;
+            text-align: center;
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .footer-text {
+            color: var(--text-muted);
+            font-size: 0.9em;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            section { padding: 20px; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .nav-links { 
+                width: 100%; 
+                justify-content: center; 
+                margin-top: 15px; 
+            }
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--dark);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--card-border);
+            border-radius: 5px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="logo">Contact Form System</div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#configuration">Configuration</a></li>
+                <li><a href="#usage">Usage</a></li>
+                <li><a href="#security">Security</a></li>
+                <li><a href="#gdpr">GDPR</a></li>
+                <li><a href="https://github.com/yourusername/contact-form-abuse-prevention">GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="hero">
+            <h1>Advanced Contact Form with Abuse Prevention</h1>
+            <p>A production-ready, GDPR-compliant contact form system with comprehensive spam protection, extended logging, IP blocklist management, domain blacklist, and automated anonymization.</p>
+            <div class="badges">
+                <span class="badge badge-blue">PHP ≥7.4</span>
+                <span class="badge badge-green">GDPR Compliant</span>
+                <span class="badge badge-green">Production Ready</span>
+                <span class="badge badge-green">MIT License</span>
+            </div>
+        </div>
+
+        <section id="features">
+            <h2>Features</h2>
+            
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h4>🔐 Core Functionality</h4>
+                    <ul>
+                        <li>PHPMailer Integration</li>
+                        <li>Server-Side Captcha</li>
+                        <li>Multi-Layer Validation</li>
+                        <li>Honeypot Protection</li>
+                        <li>PRG Pattern <span class="new-badge">NEW</span></li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card">
+                    <h4>🛡️ Advanced Abuse Prevention</h4>
+                    <ul>
+                        <li>Extended Logging System</li>
+                        <li>IP Blocklist/Whitelist</li>
+                        <li>Domain Blacklist <span class="new-badge">NEW</span></li>
+                        <li>Rate Limiting</li>
+                        <li>Spam Score (0-100)</li>
+                        <li>Pattern Detection</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card">
+                    <h4>🔒 Security & Privacy</h4>
+                    <ul>
+                        <li>HMAC Token Authentication</li>
+                        <li>Automatic IP Anonymization</li>
+                        <li>GDPR-Compliant Handling</li>
+                        <li>Secure Cookie Handling</li>
+                        <li>Input Sanitization</li>
+                        <li>No Browser Storage APIs</li>
+                    </ul>
+                </div>
+                
+                <div class="feature-card">
+                    <h4>📊 Dashboard V2.0 <span class="new-badge">NEW</span></h4>
+                    <ul>
+                        <li>Real-Time Analytics</li>
+                        <li>7-Day Trend Visualization</li>
+                        <li>Improved Status Display</li>
+                        <li>Block Duration Display</li>
+                        <li>Blocklist Statistics</li>
+                        <li>One-Click Blocking</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>System Architecture</h2>
+            <div class="tree">Contact Form Submission
+         ↓
+┌─────────────────────────────┐
+│  Priority Check: Blocklist  │
+│  - IP Blacklist             │
+│  - IP Whitelist             │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  Security Checks            │
+│  - Honeypot                 │
+│  - Rate Limit               │
+│  - Captcha                  │
+│  - Timestamp                │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  Validation                 │
+│  - Required Fields          │
+│  - Email Format             │
+│  - Domain Blacklist ⭐NEW   │
+│  - Content Analysis         │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  Spam Score Calculation     │
+│  - Keywords (+5 each)       │
+│  - Links (+5 each)          │
+│  - Patterns (+10 each)      │
+│  - Domain Block (+50) ⭐NEW │
+│  - Rate Limit (+30)         │
+└──────────┬──────────────────┘
+           ↓
+    Score >= 30?
+         /    \
+       YES     NO
+        ↓      ↓
+    BLOCK   ALLOW
+        ↓      ↓
+┌─────────────────────────────┐
+│  Extended Logger            │
+│  - Submission Details       │
+│  - User-Agent               │
+│  - Browser Fingerprint      │
+│  - Spam Score & Reasons     │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  PHPMailer                  │
+│  - Admin Notification       │
+│  - User Confirmation        │
+│  - .eml Backup              │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  Auto-Anonymization         │
+│  - After 14 days            │
+│  - IP: 192.168.1.100 → XXX  │
+│  - Audit Trail Logged       │
+└─────────────────────────────┘</div>
+        </section>
+
+        <section>
+            <h2>File Structure</h2>
+            <div class="tree">contact-form-abuse-prevention/
+│
+├── assets/
+│   ├── php/
+│   │   ├── contact-php-handler.php          # Main form handler
+│   │   ├── ContactFormValidator-v2.php      # Validation engine (v2.1)
+│   │   ├── ExtendedLogger.php               # GDPR-compliant logging
+│   │   ├── BlocklistManager.php             # IP blocklist management
+│   │   ├── .env.prod                        # Configuration (not in repo)
+│   │   │
+│   │   ├── dashboard.php                    # Unified dashboard V2.0
+│   │   ├── dashboard-login.php              # HMAC authentication
+│   │   ├── dashboard-api.php                # JSON API endpoint
+│   │   │
+│   │   ├── logs/                            # Auto-created directory
+│   │   │   ├── detailed_submissions.log     # Extended logs
+│   │   │   ├── anonymization_history.log    # Audit trail
+│   │   │   └── sent-eml/                    # Email backups
+│   │   │
+│   │   └── data/                            # Auto-created directory
+│   │       ├── blocklist.json               # Blocked IPs with metadata
+│   │       ├── whitelist.json               # Trusted IPs
+│   │       └── domain-blacklist.txt         # Blocked email domains ⭐NEW
+│   │
+│   ├── css/
+│   │   └── contact-form.css                 # Form styling
+│   │
+│   └── js/
+│       ├── contact-form.js                  # Client-side validation
+│       └── chart.min.js                     # Dashboard charts
+│
+├── vendor/                                   # Composer dependencies
+│   └── phpmailer/phpmailer/                 # PHPMailer library
+│
+├── documentation/
+│   ├── HMAC-AUTHENTICATION.md               # HMAC auth guide
+│   ├── CONFIGURATION.md                     # Setup guide
+│   ├── DEPLOYMENT-COMPLETE.md               # Deployment checklist
+│   ├── SECURITY-AUDIT.md                    # Security review
+│   └── INDEX.md                             # Documentation index
+│
+├── .htaccess                                # Apache configuration
+├── .env.prod.example                        # Environment template
+├── composer.json                            # Composer dependencies
+├── privacy-contact-form.html                # Privacy policy
+├── README.md                                # Documentation
+└── index.html                               # This file</div>
+        </section>
+
+        <section id="installation">
+            <h2>Installation</h2>
+            
+            <h3>Prerequisites</h3>
+            <ul>
+                <li>PHP 7.4 or higher</li>
+                <li>Apache/Nginx web server</li>
+                <li>Composer (for PHPMailer)</li>
+                <li>HTTPS enabled (required for secure cookies)</li>
+                <li>SMTP mail server credentials</li>
+            </ul>
+
+            <h3>Quick Start</h3>
+            <pre><code># 1. Clone repository
+git clone https://github.com/yourusername/contact-form-abuse-prevention.git
+cd contact-form-abuse-prevention
+
+# 2. Install dependencies
+composer install
+
+# 3. Configure environment
+cp .env.prod.example assets/php/.env.prod
+nano assets/php/.env.prod  # Edit SMTP and dashboard credentials
+
+# 4. Generate dashboard secret
+openssl rand -base64 32  # Copy to DASHBOARD_SECRET
+
+# 5. Set permissions
+chmod 755 assets/php/{logs,data}
+chmod 600 assets/php/.env.prod
+
+# 6. Test installation
+php -l assets/php/contact-php-handler.php</code></pre>
+
+            <h3>Environment Configuration</h3>
+            <p>Edit <code>assets/php/.env.prod</code>:</p>
+            <pre><code># SMTP Configuration
+SMTP_HOST=mail.yourdomain.com
+SMTP_PORT=587
+SMTP_SECURE=tls
+SMTP_USER=noreply@yourdomain.com
+SMTP_PASS=your-smtp-password
+
+# Email Settings
+RECIPIENT_EMAIL=admin@yourdomain.com
+
+# Dashboard Authentication
+DASHBOARD_PASSWORD=your-secure-password
+DASHBOARD_SECRET=generate-with-openssl-rand-base64-32</code></pre>
+        </section>
+
+        <section id="configuration">
+            <h2>Configuration</h2>
+            
+            <h3>Form Validator Settings</h3>
+            <pre><code>$validator = new ContactFormValidator([
+    'blockThreshold' => 30,          // Spam score to block (0-100)
+    'minSubmitTime' => 3,            // Minimum seconds to fill form
+    'maxSubmitTime' => 3600,         // Maximum seconds before expiry
+    'rateLimitMax' => 5,             // Max submissions per hour
+    'maxLinks' => 3,                 // Max links in message
+    'maxMessageLength' => 5000,      // Max message characters
+    'domainBlacklistFile' => 'domain-blacklist.txt'  // ⭐NEW
+]);</code></pre>
+
+            <h3>Domain Blacklist <span class="new-badge">NEW</span></h3>
+            <p>Block email domains by editing <code>assets/php/data/domain-blacklist.txt</code>:</p>
+            <pre><code># Domain Blacklist for Contact Form
+# One domain per line, case-insensitive
+# Lines starting with # are comments
+
+# Disposable Email Services
+tempmail.com
+guerrillamail.com
+10minutemail.com
+mailinator.com
+
+# Your custom blocked domains
+spam-domain.com
+unwanted-site.net</code></pre>
+
+            <div class="highlight-box">
+                <strong>Features:</strong> Auto-loaded on each validation • Case-insensitive matching • Comments supported • No code changes needed • +50 spam score for blocked domains
+            </div>
+        </section>
+
+        <section id="usage">
+            <h2>Usage</h2>
+            
+            <h3>Dashboard Access</h3>
+            <ol>
+                <li>Navigate to: <code>https://yourdomain.com/assets/php/dashboard-login.php</code></li>
+                <li>Enter password (from <code>.env.prod</code>)</li>
+                <li>Receive 24-hour HMAC token</li>
+                <li>Access dashboard</li>
+            </ol>
+
+            <h3>Dashboard V2.0 Tabs <span class="new-badge">NEW</span></h3>
+            
+            <h4>1. Overview</h4>
+            <ul>
+                <li>Today's statistics (total, allowed, blocked)</li>
+                <li>Average spam score</li>
+                <li><strong>Blocklist statistics</strong> (total entries, permanent blocks)</li>
+                <li>7-day trend chart</li>
+                <li>Top IP addresses</li>
+                <li><strong>Block reasons from submissions</strong></li>
+            </ul>
+
+            <h4>2. Recent Submissions</h4>
+            <ul>
+                <li>Last 50 non-anonymized logs (14 days)</li>
+                <li><strong>Improved status display:</strong>
+                    <ul>
+                        <li>Submission Status: ✓ Allowed or 🚫 Blocked</li>
+                        <li>IP Status: Already Blocked, Whitelisted, or [Block IP] button</li>
+                    </ul>
+                </li>
+                <li><strong>Block duration display</strong> (shows expiration time)</li>
+                <li>Spam score badge (color-coded)</li>
+                <li>One-click blocking with custom duration</li>
+            </ul>
+
+            <h4>3. Blocklist</h4>
+            <ul>
+                <li>Active blocked IPs</li>
+                <li>Expiration management</li>
+                <li>Block metadata (reason, dates)</li>
+                <li>Quick unblock action</li>
+            </ul>
+
+            <h4>4. Whitelist</h4>
+            <ul>
+                <li>Trusted IPs (never blocked)</li>
+                <li>Add new with note</li>
+                <li>Quick remove action</li>
+            </ul>
+        </section>
+
+        <section id="security">
+            <h2>Security Features</h2>
+            
+            <h3>1. HMAC Token Authentication</h3>
+            <p>Stateless authentication without PHP sessions:</p>
+            <pre><code>Token Structure: [BASE64_PAYLOAD].[HMAC_SIGNATURE]
+
+Payload: {"user": "dashboard_admin", "exp": 1730123456}
+Signature: HMAC-SHA256(payload, DASHBOARD_SECRET)</code></pre>
+            
+            <p><strong>Benefits:</strong></p>
+            <ul>
+                <li>✅ No session storage</li>
+                <li>✅ Cannot be forged</li>
+                <li>✅ Automatic expiration</li>
+                <li>✅ Resistant to session hijacking</li>
+                <li>✅ Horizontal scaling friendly</li>
+            </ul>
+
+            <h3>2. Multi-Layer Spam Detection</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Check</th>
+                        <th>Score</th>
+                        <th>Triggered When</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>IP Blocklisted</td>
+                        <td>+100</td>
+                        <td>Manual block</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Blocked Domain</strong> ⭐NEW</td>
+                        <td>+50</td>
+                        <td>Email from blacklist</td>
+                    </tr>
+                    <tr>
+                        <td>Honeypot filled</td>
+                        <td>+50</td>
+                        <td>Bot filled hidden field</td>
+                    </tr>
+                    <tr>
+                        <td>Submitted too fast</td>
+                        <td>+40</td>
+                        <td>&lt;3 seconds</td>
+                    </tr>
+                    <tr>
+                        <td>Rate limit exceeded</td>
+                        <td>+30</td>
+                        <td>&gt;5/hour from IP</td>
+                    </tr>
+                    <tr>
+                        <td>Spam keywords</td>
+                        <td>+5 each</td>
+                        <td>Trigger words found</td>
+                    </tr>
+                    <tr>
+                        <td>Excessive links</td>
+                        <td>+5 each</td>
+                        <td>&gt;3 URLs</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p><strong>Threshold: Score ≥ 30 → BLOCKED</strong></p>
+
+            <h3>3. PRG Pattern <span class="new-badge">NEW</span></h3>
+            <p><strong>Post-Redirect-Get</strong> prevents form resubmission errors:</p>
+            <pre><code>// After POST action
+header('Location: ' . $_SERVER['PHP_SELF'] . '?msg=success');
+exit;</code></pre>
+            <p><strong>Benefits:</strong> No "Form resubmission" warnings • Clean URLs • Better UX</p>
+        </section>
+
+        <section id="gdpr">
+            <h2>GDPR Compliance</h2>
+            
+            <h3>Data Minimization</h3>
+            <p><strong>Only Essential Data Collected:</strong></p>
+            <ul>
+                <li>Name, email (for response)</li>
+                <li>Message content (for inquiry)</li>
+                <li>IP address (security - <strong>14 days only</strong>)</li>
+                <li>Technical metadata (spam detection)</li>
+            </ul>
+
+            <h3>Automatic Anonymization</h3>
+            <p>IP addresses are automatically anonymized after 14 days:</p>
+            <pre><code>BEFORE (Day 1-14):
+192.168.1.100
+2001:db8::1
+
+AFTER (Day 15+):
+192.168.1.XXX
+2001:db8::XXX</code></pre>
+
+            <div class="highlight-box">
+                <strong>Process:</strong> Runs on every dashboard access • Finds logs older than 14 days • Replaces last IP segment irreversibly • Logs action in audit trail
+            </div>
+
+            <h3>Legal Basis</h3>
+            <ul>
+                <li><strong>Art. 6(1)(b) GDPR:</strong> Contract performance (inquiry response)</li>
+                <li><strong>Art. 6(1)(a) GDPR:</strong> Consent (privacy checkbox)</li>
+                <li><strong>Art. 6(1)(f) GDPR:</strong> Legitimate interest (spam protection, security)</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Changelog</h2>
+            
+            <h3>Version 4.0.0 (2025-10-04) <span class="new-badge">CURRENT</span></h3>
+            <p><strong>New Features:</strong></p>
+            <ul>
+                <li>⭐ Domain blacklist support</li>
+                <li>⭐ PRG Pattern implementation</li>
+                <li>⭐ Dashboard V2.0 with improved UX</li>
+                <li>⭐ Block duration display</li>
+                <li>⭐ Blocklist statistics in overview</li>
+            </ul>
+            
+            <p><strong>Improvements:</strong></p>
+            <ul>
+                <li>Better status indicators (Submission vs IP status)</li>
+                <li>Clear expiration time display</li>
+                <li>Block reasons analytics</li>
+                <li>Enhanced documentation</li>
+            </ul>
+            
+            <p><strong>Bug Fixes:</strong></p>
+            <ul>
+                <li>Fixed "form resubmission" warning</li>
+                <li>Fixed dashboard logout issues</li>
+                <li>Improved cookie security</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Project Status</h2>
+            
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Status</th>
+                </tr>
+                <tr>
+                    <td><strong>Version</strong></td>
+                    <td>4.0.0</td>
+                </tr>
+                <tr>
+                    <td><strong>Status</strong></td>
+                    <td>✅ Production Ready</td>
+                </tr>
+                <tr>
+                    <td><strong>Last Updated</strong></td>
+                    <td>October 2025</td>
+                </tr>
+                <tr>
+                    <td><strong>Maintenance</strong></td>
+                    <td>🟢 Active</td>
+                </tr>
+                <tr>
+                    <td><strong>PHP Version</strong></td>
+                    <td>≥7.4</td>
+                </tr>
+                <tr>
+                    <td><strong>GDPR Compliant</strong></td>
+                    <td>✅ Yes</td>
+                </tr>
+            </table>
+
+            <h3>Roadmap</h3>
+            <p><strong>Planned Features:</strong></p>
+            <ul>
+                <li>Advanced bot detection (User-Agent analysis)</li>
+                <li>Email verification API integration</li>
+                <li>Multi-language support</li>
+                <li>WebAuthn 2FA for dashboard</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="#features">Features</a>
+                <a href="#installation">Installation</a>
+                <a href="#configuration">Configuration</a>
+                <a href="#usage">Usage</a>
+                <a href="#security">Security</a>
+                <a href="#gdpr">GDPR</a>
+                <a href="https://github.com/yourusername/contact-form-abuse-prevention">GitHub</a>
+                <a href="privacy-contact-form.html">Privacy Policy</a>
+            </div>
+            <div class="footer-text">
+                <p><strong>Advanced Contact Form with Abuse Prevention</strong></p>
+                <p>Made with ❤️ for secure, GDPR-compliant contact forms</p>
+                <p>&copy; 2025 MIT License</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
