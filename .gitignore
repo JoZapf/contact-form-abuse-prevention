@@ -19,15 +19,17 @@
 # ----------------------------------------------------------------------------
 # These files contain sensitive data and MUST NEVER be committed!
 
+# Production Configuration Reference
+# Contains actual production values (domains, secrets documentation)
+PRODUCTION-CONFIG.md
+
 # Environment Configuration Files
 # Contains SMTP passwords, dashboard secrets, API keys
 .env
 .env.prod
-.env.local
 .env.production
 assets/php/.env
 assets/php/.env.prod
-assets/php/.env.local
 
 # Log Files - May Contain Personal Data (Names, Emails, IP Addresses)
 # GDPR: Logs contain personal identifiable information (PII)
