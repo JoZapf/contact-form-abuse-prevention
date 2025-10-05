@@ -1,10 +1,27 @@
 <?php
 /**
- * Unified Dashboard - Statistics + Blocklist Management
- * V2.0 - PRG Pattern + Improved UX
+ * Unified Dashboard - Statistics + Blocklist Management with CSRF Protection
+ * 
+ * @version     2.1.0
+ * @date        2025-10-05 20:15:00 UTC
+ * @repository  https://github.com/JoZapf/contact-form-abuse-prevention
+ * @package     ContactFormAbusePrevention
+ * @author      Jo Zapf
+ * 
+ * CHANGELOG v2.1.0 (2025-10-05):
+ * - [SECURITY] Added CSRF token validation for all POST actions (AP-02)
+ * - [SECURITY] Double Submit Cookie pattern + JWT verification (AP-02)
+ * - [SECURITY] All forms now include CSRF token hidden field (AP-02)
+ * - [SECURITY] HTTP 403 on failed CSRF validation with logging (AP-02)
+ * - [BREAKING] Requires dashboard-login.v2.php (csrf_token cookie)
+ * 
+ * Previous version: v2.0.0 (PRG Pattern + Improved UX)
  */
 
-// Token verification
+// ============================================================================
+// CONFIGURATION: Environment Variables
+// ============================================================================
+
 function env($key, $default = null) {
     $envFile = __DIR__ . '/.env.prod';
     if (file_exists($envFile)) {
@@ -19,6 +36,10 @@ function env($key, $default = null) {
     return $default;
 }
 
+// ============================================================================
+// SECURITY: Token Verification
+// ============================================================================
+
 function verifyToken($token, $secret) {
     if (empty($token) || strpos($token, '.') === false) return false;
     [$payload, $signature] = explode('.', $token, 2);
@@ -27,6 +48,68 @@ function verifyToken($token, $secret) {
     $data = json_decode(base64_decode($payload), true);
     return $data && isset($data['exp']) && $data['exp'] >= time();
 }
+
+// ============================================================================
+// SECURITY: CSRF Token Validation (AP-02)
+// ============================================================================
+
+/**
+ * Validate CSRF token from POST request
+ * 
+ * Performs two-stage validation:
+ * 1. Cookie value must match POST value (Double Submit Cookie)
+ * 2. JWT claim must match Cookie value (Token binding)
+ * 
+ * @param string $token Dashboard JWT token
+ * @param string $secret DASHBOARD_SECRET from .env.prod
+ * @return bool True if valid, false otherwise
+ * 
+ * @since v2.1.0 (AP-02)
+ */
+function validateCsrfToken($token, $secret) {
+    // Token aus Cookie und POST-Daten
+    $csrfCookie = $_COOKIE['csrf_token'] ?? '';
+    $csrfPost = $_POST['csrf_token'] ?? '';
+    
+    // Prüfung 1: Cookie und POST müssen übereinstimmen
+    if (empty($csrfCookie) || empty($csrfPost)) {
+        error_log("CSRF validation failed: Missing token (Cookie: " . 
+                  (empty($csrfCookie) ? 'NO' : 'YES') . 
+                  ", POST: " . (empty($csrfPost) ? 'NO' : 'YES') . ")");
+        return false;
+    }
+    
+    if (!hash_equals($csrfCookie, $csrfPost)) {
+        error_log("CSRF validation failed: Cookie/POST mismatch");
+        return false;
+    }
+    
+    // Prüfung 2: JWT-Payload muss mit Cookie übereinstimmen
+    if (strpos($token, '.') === false) {
+        error_log("CSRF validation failed: Invalid JWT format");
+        return false;
+    }
+    
+    [$payload, $signature] = explode('.', $token, 2);
+    $jwtData = json_decode(base64_decode($payload), true);
+    
+    if (!isset($jwtData['csrf'])) {
+        error_log("CSRF validation failed: No CSRF claim in JWT");
+        return false;
+    }
+    
+    if (!hash_equals($jwtData['csrf'], $csrfCookie)) {
+        error_log("CSRF validation failed: JWT/Cookie mismatch");
+        return false;
+    }
+    
+    // ✅ Alle Prüfungen bestanden
+    return true;
+}
+
+// ============================================================================
+// AUTHENTICATION: Verify Dashboard Access
+// ============================================================================
 
 $secret = env('DASHBOARD_SECRET');
 $token = $_COOKIE['dashboard_token'] ?? '';
@@ -43,8 +126,18 @@ require_once __DIR__ . '/BlocklistManager.php';
 $logger = new ExtendedLogger(__DIR__ . '/logs');
 $blocklist = new BlocklistManager(__DIR__ . '/data');
 
-// Handle POST actions (with PRG pattern)
+// ============================================================================
+// POST HANDLER: Admin Actions with CSRF Protection (AP-02)
+// ============================================================================
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF-Token validieren (AP-02)
+    if (!validateCsrfToken($token, $secret)) {
+        http_response_code(403);
+        die('CSRF validation failed. Please refresh the page and try again.');
+    }
+    
+    // ✅ CSRF-Validierung erfolgreich - POST-Aktionen erlaubt
     $action = $_POST['action'] ?? '';
     $message = '';
     $type = '';
@@ -133,6 +226,11 @@ $recentSubmissions = $logger->getRecentSubmissions(50, true);
 $blockedIPs = $blocklist->getBlocklist();
 $whitelistedIPs = $blocklist->getWhitelist();
 $blockStats = $blocklist->getStats();
+
+// ============================================================================
+// CSRF TOKEN: Get from cookie for forms (AP-02)
+// ============================================================================
+$csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -169,6 +267,16 @@ $blockStats = $blocklist->getStats();
         
         h1 { color: #fff; font-size: 2em; margin-bottom: 10px; }
         .subtitle { color: #8b949e; font-size: 0.9em; }
+        .version-badge {
+            display: inline-block;
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
         
         .nav-tabs {
             display: flex;
@@ -439,7 +547,10 @@ $blockStats = $blocklist->getStats();
 <body>
     <div class="container">
         <header>
-            <h1>Contact Form Dashboard</h1>
+            <h1>
+                Contact Form Dashboard
+                <span class="version-badge">v2.1.0 - CSRF Protected</span>
+            </h1>
             <p class="subtitle">Analytics, Extended Logging & IP Management</p>
             
             <div class="nav-tabs">
@@ -670,7 +781,9 @@ $blockStats = $blocklist->getStats();
                                     <?php endif; ?>
                                 </td>
                                 <td>
+                                    <!-- AP-02: CSRF Token in Form -->
                                     <form method="POST" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                         <input type="hidden" name="action" value="unblock_ip">
                                         <input type="hidden" name="ip" value="<?= htmlspecialchars($entry['ip']) ?>">
                                         <button type="submit" class="btn btn-success btn-small" onclick="return confirm('Unblock this IP?')">
@@ -714,7 +827,9 @@ $blockStats = $blocklist->getStats();
                                 <td><?= htmlspecialchars($entry['note'] ?? 'No note') ?></td>
                                 <td class="timestamp"><?= date('Y-m-d H:i', strtotime($entry['addedAt'])) ?></td>
                                 <td>
+                                    <!-- AP-02: CSRF Token in Form -->
                                     <form method="POST" style="display: inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                         <input type="hidden" name="action" value="remove_whitelist">
                                         <input type="hidden" name="ip" value="<?= htmlspecialchars($entry['ip']) ?>">
                                         <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Remove from whitelist?')">
@@ -742,7 +857,9 @@ $blockStats = $blocklist->getStats();
                 <button class="modal-close" onclick="hideBlockModal()">&times;</button>
             </div>
             
+            <!-- AP-02: CSRF Token in Form -->
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                 <input type="hidden" name="action" value="block_ip">
                 <input type="hidden" name="ip" id="blockIP">
                 <input type="hidden" name="userAgent" id="blockUserAgent">
@@ -781,7 +898,9 @@ $blockStats = $blocklist->getStats();
                 <button class="modal-close" onclick="hideWhitelistModal()">&times;</button>
             </div>
             
+            <!-- AP-02: CSRF Token in Form -->
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                 <input type="hidden" name="action" value="whitelist_ip">
                 
                 <div class="form-group">
