@@ -164,8 +164,8 @@ contact-form-abuse-prevention/
 │   │   └── contact-form.css                 # Form styling
 │   │
 │   └── js/
-│       ├── contact-form.js                  # Client-side validation
-│       └── chart.min.js                     # Dashboard charts
+│       ├── contact-form-logic.js            # Client-side validation
+│       └── chart.js                         # Dashboard charts
 │
 ├── vendor/                                   # Composer dependencies
 │   └── phpmailer/phpmailer/                 # PHPMailer library
@@ -338,7 +338,7 @@ Fine-tune spam keywords in `ContactFormValidator-v2.php`:
     <button type="submit">Send</button>
 </form>
 
-<script src="assets/js/contact-form.js"></script>
+<script src="assets/js/contact-form-logic.js"></script>
 ```
 
 ### Dashboard Access
