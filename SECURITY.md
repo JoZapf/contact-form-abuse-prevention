@@ -105,8 +105,7 @@ If you discover a security vulnerability, **please report it responsibly:**
 
 1. **Report privately** via one of these methods:
    - GitHub Security Advisory (Preferred)
-   - Email: security@example.com (PGP key available on request)
-   - Encrypted contact form at: https://example.com/security-report
+   - Encrypted contact form at: https://jozapf.de
 
 2. **Include in your report:**
    - Description of the vulnerability
