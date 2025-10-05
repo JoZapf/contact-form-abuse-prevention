@@ -88,7 +88,7 @@ reported through:
 - Tag it as "conduct-report"
 
 **📧 Contact Form** (Alternative)
-- Use the contact form at: https://yourdomain.com/contact
+- Use the contact form at: https://jozapf.de/
 - Subject: "Code of Conduct Report"
 
 All complaints will be reviewed and investigated promptly and fairly.
