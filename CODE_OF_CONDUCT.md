@@ -76,14 +76,22 @@ Examples of representing our community include:
 ### Reporting
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at:
+reported through:
 
-📧 **conduct@example.com**
+**🔒 Private Security Advisory** (Preferred for sensitive issues)
+- Go to the "Security" tab
+- Click "Report a vulnerability"
+- Describe the incident confidentially
+
+**📝 GitHub Discussion** (For general conduct concerns)
+- Open a private discussion in the "Discussions" tab
+- Tag it as "conduct-report"
+
+**📧 Contact Form** (Alternative)
+- Use the contact form at: https://yourdomain.com/contact
+- Subject: "Code of Conduct Report"
 
 All complaints will be reviewed and investigated promptly and fairly.
-
-All community leaders are obligated to respect the privacy and security of the
-reporter of any incident.
 
 ### Confidentiality
 
