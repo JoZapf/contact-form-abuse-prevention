@@ -14,13 +14,14 @@ A production-ready, GDPR-compliant contact form system with robust spam protecti
 
 **This project is designed for anyone who values security, privacy, and reliability in web communication.**  
 
-***Project objectives:**
-- **Consolidate and internalize deployment workflows**
+**Project objectives:**
+- **Learning, consolidating and internalizing deployment workflows**
 - **Exercises with GitHub**
-- **Pursue personal interests alongside training**
-- **Apply Model Context Protocol with data protection-compliant IDEs and containerized systems**
-- **A reliable system for personal use and the benefit of others**
+- **Pursue personal interests alongside official training**
+- **Apply Model Context Protocol with data protection-compliant IDEs and containerized systems and actions**
+- **A reliable, easy to expand and robust contact-form system**
 - **Create interfaces that I can continue to build on**
+- **having fun**
 ---
 - **GDPR-compliant contact form** with multi-layered spam and abuse prevention
 - **Security-first dashboard** with stateless authentication and rate limiting
