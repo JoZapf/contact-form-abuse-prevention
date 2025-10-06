@@ -40,6 +40,7 @@ assets/php/logs/*.log
 # Specific Log Files
 assets/php/logs/detailed_submissions.log
 assets/php/logs/anonymization_history.log
+assets/php/logs/cron-anonymization.log
 assets/php/logs/security.log
 assets/php/logs/blocked.log
 
