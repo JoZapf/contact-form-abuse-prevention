@@ -1,115 +1,21 @@
 <?php
 /**
- * Unified Dashboard - Statistics + Blocklist Management with CSRF Protection
+ * Unified Dashboard - Statistics + Blocklist Management
+ * Protected with HMAC token
  * 
- * @version     2.1.0
- * @date        2025-10-05 20:15:00 UTC
- * @repository  https://github.com/JoZapf/contact-form-abuse-prevention
- * @package     ContactFormAbusePrevention
- * @author      Jo Zapf
+ * @version 2.0.0
+ * @date 2026-03-24
  * 
- * CHANGELOG v2.1.0 (2025-10-05):
- * - [SECURITY] Added CSRF token validation for all POST actions (AP-02)
- * - [SECURITY] Double Submit Cookie pattern + JWT verification (AP-02)
- * - [SECURITY] All forms now include CSRF token hidden field (AP-02)
- * - [SECURITY] HTTP 403 on failed CSRF validation with logging (AP-02)
- * - [BREAKING] Requires dashboard-login.v2.php (csrf_token cookie)
+ * Changelog v2.0.0 (2026-03-24):
+ * - HF-03 FIX: CSRF-Token für alle POST-Formulare
+ * - MF-03 FIX: Lokale env()/verifyToken() durch helpers.php ersetzt
  * 
- * Previous version: v2.0.0 (PRG Pattern + Improved UX)
+ * Changelog v1.0.0 (2025-10-12):
+ * - Initial: Unified Dashboard mit Tabs
  */
 
-// ============================================================================
-// CONFIGURATION: Environment Variables
-// ============================================================================
-
-function env($key, $default = null) {
-    $envFile = __DIR__ . '/.env.prod';
-    if (file_exists($envFile)) {
-        $lines = file($envFile, FILE_IGNORE_NEW_LINES);
-        foreach ($lines as $line) {
-            if (strpos($line, '=') !== false && $line[0] !== '#') {
-                [$k, $v] = explode('=', trim($line), 2);
-                if (trim($k) === $key) return trim($v, '"\'');
-            }
-        }
-    }
-    return $default;
-}
-
-// ============================================================================
-// SECURITY: Token Verification
-// ============================================================================
-
-function verifyToken($token, $secret) {
-    if (empty($token) || strpos($token, '.') === false) return false;
-    [$payload, $signature] = explode('.', $token, 2);
-    $expected = hash_hmac('sha256', $payload, $secret);
-    if (!hash_equals($expected, $signature)) return false;
-    $data = json_decode(base64_decode($payload), true);
-    return $data && isset($data['exp']) && $data['exp'] >= time();
-}
-
-// ============================================================================
-// SECURITY: CSRF Token Validation (AP-02)
-// ============================================================================
-
-/**
- * Validate CSRF token from POST request
- * 
- * Performs two-stage validation:
- * 1. Cookie value must match POST value (Double Submit Cookie)
- * 2. JWT claim must match Cookie value (Token binding)
- * 
- * @param string $token Dashboard JWT token
- * @param string $secret DASHBOARD_SECRET from .env.prod
- * @return bool True if valid, false otherwise
- * 
- * @since v2.1.0 (AP-02)
- */
-function validateCsrfToken($token, $secret) {
-    // Token aus Cookie und POST-Daten
-    $csrfCookie = $_COOKIE['csrf_token'] ?? '';
-    $csrfPost = $_POST['csrf_token'] ?? '';
-    
-    // Prüfung 1: Cookie und POST müssen übereinstimmen
-    if (empty($csrfCookie) || empty($csrfPost)) {
-        error_log("CSRF validation failed: Missing token (Cookie: " . 
-                  (empty($csrfCookie) ? 'NO' : 'YES') . 
-                  ", POST: " . (empty($csrfPost) ? 'NO' : 'YES') . ")");
-        return false;
-    }
-    
-    if (!hash_equals($csrfCookie, $csrfPost)) {
-        error_log("CSRF validation failed: Cookie/POST mismatch");
-        return false;
-    }
-    
-    // Prüfung 2: JWT-Payload muss mit Cookie übereinstimmen
-    if (strpos($token, '.') === false) {
-        error_log("CSRF validation failed: Invalid JWT format");
-        return false;
-    }
-    
-    [$payload, $signature] = explode('.', $token, 2);
-    $jwtData = json_decode(base64_decode($payload), true);
-    
-    if (!isset($jwtData['csrf'])) {
-        error_log("CSRF validation failed: No CSRF claim in JWT");
-        return false;
-    }
-    
-    if (!hash_equals($jwtData['csrf'], $csrfCookie)) {
-        error_log("CSRF validation failed: JWT/Cookie mismatch");
-        return false;
-    }
-    
-    // ✅ Alle Prüfungen bestanden
-    return true;
-}
-
-// ============================================================================
-// AUTHENTICATION: Verify Dashboard Access
-// ============================================================================
+// MF-03 FIX: Zentrale Hilfsfunktionen
+require_once __DIR__ . '/helpers.php';
 
 $secret = env('DASHBOARD_SECRET');
 $token = $_COOKIE['dashboard_token'] ?? '';
@@ -126,21 +32,33 @@ require_once __DIR__ . '/BlocklistManager.php';
 $logger = new ExtendedLogger(__DIR__ . '/logs');
 $blocklist = new BlocklistManager(__DIR__ . '/data');
 
-// ============================================================================
-// POST HANDLER: Admin Actions with CSRF Protection (AP-02)
-// ============================================================================
+// HF-03 FIX: CSRF-Token für Dashboard-Formulare
+if (session_status() === PHP_SESSION_NONE) {
+    session_start([
+        'cookie_httponly' => true,
+        'cookie_secure'   => true,
+        'cookie_samesite' => 'Strict',
+    ]);
+}
+if (empty($_SESSION['dashboard_csrf'])) {
+    $_SESSION['dashboard_csrf'] = bin2hex(random_bytes(32));
+}
+
+// Handle actions
+$message = '';
+$messageType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // CSRF-Token validieren (AP-02)
-    if (!validateCsrfToken($token, $secret)) {
-        http_response_code(403);
-        die('CSRF validation failed. Please refresh the page and try again.');
-    }
-    
-    // ✅ CSRF-Validierung erfolgreich - POST-Aktionen erlaubt
+    // HF-03: CSRF-Token validieren
+    $postedCsrf = $_POST['dashboard_csrf'] ?? '';
+    if (!hash_equals($_SESSION['dashboard_csrf'], $postedCsrf)) {
+        $message = 'Invalid security token. Please reload the page.';
+        $messageType = 'error';
+    } else {
+    // Token rotieren nach erfolgreicher Validierung
+    $_SESSION['dashboard_csrf'] = bin2hex(random_bytes(32));
+
     $action = $_POST['action'] ?? '';
-    $message = '';
-    $type = '';
     
     try {
         switch ($action) {
@@ -162,10 +80,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if ($blocklist->addToBlocklist($ip, $reason, $expiresAt, $metadata)) {
                     $message = "IP {$ip} successfully blocked";
-                    $type = 'success';
+                    $messageType = 'success';
                 } else {
                     $message = "IP {$ip} is already blocked or whitelisted";
-                    $type = 'warning';
+                    $messageType = 'warning';
                 }
                 break;
                 
@@ -173,10 +91,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ip = $_POST['ip'] ?? '';
                 if ($blocklist->removeFromBlocklist($ip)) {
                     $message = "IP {$ip} successfully unblocked";
-                    $type = 'success';
+                    $messageType = 'success';
                 } else {
                     $message = "IP {$ip} not found in blocklist";
-                    $type = 'warning';
+                    $messageType = 'warning';
                 }
                 break;
                 
@@ -185,10 +103,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $note = $_POST['note'] ?? null;
                 if ($blocklist->addToWhitelist($ip, $note)) {
                     $message = "IP {$ip} successfully whitelisted";
-                    $type = 'success';
+                    $messageType = 'success';
                 } else {
                     $message = "IP {$ip} is already whitelisted";
-                    $type = 'warning';
+                    $messageType = 'warning';
                 }
                 break;
                 
@@ -196,41 +114,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ip = $_POST['ip'] ?? '';
                 if ($blocklist->removeFromWhitelist($ip)) {
                     $message = "IP {$ip} removed from whitelist";
-                    $type = 'success';
+                    $messageType = 'success';
                 } else {
                     $message = "IP {$ip} not found in whitelist";
-                    $type = 'warning';
+                    $messageType = 'warning';
                 }
                 break;
         }
     } catch (Exception $e) {
         $message = "Error: " . $e->getMessage();
-        $type = 'error';
+        $messageType = 'error';
     }
-    
-    // PRG Pattern: Redirect after POST to prevent form resubmission
-    $redirectUrl = $_SERVER['PHP_SELF'];
-    if (!empty($message)) {
-        $redirectUrl .= '?msg=' . urlencode($message) . '&type=' . urlencode($type);
-    }
-    header('Location: ' . $redirectUrl);
-    exit;
+    } // Ende HF-03 CSRF else-Block
 }
-
-// Get message from query string (after redirect)
-$message = $_GET['msg'] ?? '';
-$messageType = $_GET['type'] ?? '';
 
 // Get data
 $recentSubmissions = $logger->getRecentSubmissions(50, true);
 $blockedIPs = $blocklist->getBlocklist();
 $whitelistedIPs = $blocklist->getWhitelist();
 $blockStats = $blocklist->getStats();
-
-// ============================================================================
-// CSRF TOKEN: Get from cookie for forms (AP-02)
-// ============================================================================
-$csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -267,16 +169,6 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         
         h1 { color: #fff; font-size: 2em; margin-bottom: 10px; }
         .subtitle { color: #8b949e; font-size: 0.9em; }
-        .version-badge {
-            display: inline-block;
-            background: rgba(46, 204, 113, 0.2);
-            color: #2ecc71;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 0.75em;
-            font-weight: 600;
-            margin-left: 10px;
-        }
         
         .nav-tabs {
             display: flex;
@@ -305,7 +197,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
@@ -331,7 +223,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         
         .stat-label {
             color: #8b949e;
-            font-size: 0.85em;
+            font-size: 0.9em;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -340,7 +232,6 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         .stat-value.danger { color: #e74c3c; }
         .stat-value.warning { color: #f39c12; }
         .stat-value.info { color: #3498db; }
-        .stat-value.purple { color: #9b59b6; }
         
         .card {
             background: rgba(22, 27, 34, 0.8);
@@ -398,7 +289,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         .btn-danger:hover { background: #c0392b; }
         .btn-success { background: #27ae60; color: white; }
         .btn-success:hover { background: #229954; }
-        .btn-small { padding: 6px 12px; font-size: 0.85em; }
+        .btn-small { padding: 5px 10px; font-size: 0.85em; }
         
         .refresh-btn {
             background: #3498db;
@@ -416,20 +307,15 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         
         .badge {
             display: inline-block;
-            padding: 5px 12px;
+            padding: 4px 10px;
             border-radius: 12px;
             font-size: 0.85em;
             font-weight: 600;
         }
         
-        .badge-allowed { background: #27ae60; color: white; }
-        .badge-blocked { background: #e74c3c; color: white; }
-        .badge-whitelist { background: #3498db; color: white; }
-        .badge-already-blocked { background: #7f8c8d; color: white; opacity: 0.7; cursor: default; }
-        .badge-warning { background: #f39c12; color: white; }
-        .badge-spam-low { background: #27ae60; color: white; }
-        .badge-spam-medium { background: #f39c12; color: #000; }
-        .badge-spam-high { background: #e74c3c; color: white; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-warning { background: #fff3cd; color: #856404; }
         
         .loading {
             text-align: center;
@@ -453,7 +339,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         }
         
         .timestamp { color: #8b949e; font-size: 0.85em; }
-        .ip-address { font-family: 'Courier New', monospace; color: #3498db; }
+        .ip-address { font-family: monospace; color: #3498db; }
         
         .message {
             padding: 15px;
@@ -532,12 +418,6 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
             cursor: pointer;
         }
         
-        .block-duration {
-            font-size: 0.85em;
-            color: #8b949e;
-            margin-top: 4px;
-        }
-        
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: 1fr; }
             .chart-container { height: 250px; }
@@ -547,10 +427,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
 <body>
     <div class="container">
         <header>
-            <h1>
-                Contact Form Dashboard
-                <span class="version-badge">v2.1.0 - CSRF Protected</span>
-            </h1>
+            <h1>Contact Form Dashboard</h1>
             <p class="subtitle">Analytics, Extended Logging & IP Management</p>
             
             <div class="nav-tabs">
@@ -562,7 +439,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
         </header>
         
         <?php if ($message): ?>
-            <div class="message message-<?= htmlspecialchars($messageType) ?>">
+            <div class="message message-<?= $messageType ?>">
                 <?= htmlspecialchars($message) ?>
             </div>
         <?php endif; ?>
@@ -588,7 +465,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-label">Blocked Submissions</div>
+                        <div class="stat-label">Blocked</div>
                         <div class="stat-value danger" id="blockedSubmissions">-</div>
                         <div class="timestamp" id="blockedPercent"></div>
                     </div>
@@ -596,12 +473,6 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                     <div class="stat-card">
                         <div class="stat-label">Average Spam Score</div>
                         <div class="stat-value warning" id="avgSpamScore">-</div>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-label">Blocklist Entries Total</div>
-                        <div class="stat-value purple"><?= $blockStats['activeBlocks'] ?></div>
-                        <div class="timestamp"><?= $blockStats['permanentBlocks'] ?> permanent</div>
                     </div>
                 </div>
                 
@@ -632,7 +503,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                     </div>
                     
                     <div class="card">
-                        <h2>Block Reasons from Submissions</h2>
+                        <h2>Block Reasons</h2>
                         <table id="blockReasonsTable">
                             <thead>
                                 <tr>
@@ -664,59 +535,35 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                             <th>IP Address</th>
                             <th>Email</th>
                             <th>Spam Score</th>
-                            <th>Submission Status</th>
-                            <th>IP Status & Actions</th>
+                            <th>Status</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($recentSubmissions as $sub): ?>
-                            <?php 
-                            $isBlocked = $blocklist->isBlocked($sub['ip']);
-                            $isWhitelisted = $blocklist->isWhitelisted($sub['ip']);
-                            $blockDetails = $isBlocked ? $blocklist->getBlockDetails($sub['ip']) : null;
-                            ?>
                             <tr>
                                 <td class="timestamp"><?= date('Y-m-d H:i:s', strtotime($sub['timestamp'])) ?></td>
                                 <td class="ip-address"><?= htmlspecialchars($sub['ip']) ?></td>
                                 <td><?= htmlspecialchars($sub['formData']['email'] ?? 'N/A') ?></td>
                                 <td>
-                                    <?php 
-                                    $score = $sub['spamScore'];
-                                    $badgeClass = $score >= 30 ? 'badge-spam-high' : ($score >= 15 ? 'badge-spam-medium' : 'badge-spam-low');
-                                    ?>
-                                    <span class="badge <?= $badgeClass ?>">
-                                        <?= $score ?>
+                                    <span class="badge <?= $sub['spamScore'] >= 30 ? 'badge-danger' : ($sub['spamScore'] >= 15 ? 'badge-warning' : 'badge-success') ?>">
+                                        <?= $sub['spamScore'] ?>
                                     </span>
                                 </td>
                                 <td>
                                     <?php if ($sub['blocked']): ?>
-                                        <span class="badge badge-blocked">Blocked</span>
+                                        <span class="badge badge-danger">Blocked</span>
                                     <?php else: ?>
-                                        <span class="badge badge-allowed">Allowed</span>
+                                        <span class="badge badge-success">Allowed</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($isWhitelisted): ?>
-                                        <span class="badge badge-whitelist">
-                                            Whitelisted
-                                        </span>
-                                    <?php elseif ($isBlocked): ?>
-                                        <span class="badge badge-already-blocked">
-                                            Already Blocked
-                                        </span>
-                                        <?php if ($blockDetails): ?>
-                                            <div class="block-duration">
-                                                <?php if (isset($blockDetails['expiresAt'])): ?>
-                                                    Expires: <?= date('Y-m-d H:i', strtotime($blockDetails['expiresAt'])) ?>
-                                                <?php else: ?>
-                                                    Permanent
-                                                <?php endif; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    <?php else: ?>
+                                    <?php if (!$blocklist->isBlocked($sub['ip'])): ?>
                                         <button class="btn btn-danger btn-small" onclick="showBlockModal('<?= htmlspecialchars($sub['ip']) ?>', '<?= htmlspecialchars($sub['userAgent'] ?? '') ?>')">
                                             Block IP
                                         </button>
+                                    <?php else: ?>
+                                        <span style="color: #8b949e;">Blocked</span>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -777,13 +624,12 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                                             <?= date('Y-m-d H:i', strtotime($entry['expiresAt'])) ?>
                                         <?php endif; ?>
                                     <?php else: ?>
-                                        <span class="badge badge-blocked">Permanent</span>
+                                        <span class="badge badge-danger">Permanent</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <!-- AP-02: CSRF Token in Form -->
                                     <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="dashboard_csrf" value="<?= htmlspecialchars($_SESSION['dashboard_csrf']) ?>">
                                         <input type="hidden" name="action" value="unblock_ip">
                                         <input type="hidden" name="ip" value="<?= htmlspecialchars($entry['ip']) ?>">
                                         <button type="submit" class="btn btn-success btn-small" onclick="return confirm('Unblock this IP?')">
@@ -827,9 +673,8 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                                 <td><?= htmlspecialchars($entry['note'] ?? 'No note') ?></td>
                                 <td class="timestamp"><?= date('Y-m-d H:i', strtotime($entry['addedAt'])) ?></td>
                                 <td>
-                                    <!-- AP-02: CSRF Token in Form -->
                                     <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="dashboard_csrf" value="<?= htmlspecialchars($_SESSION['dashboard_csrf']) ?>">
                                         <input type="hidden" name="action" value="remove_whitelist">
                                         <input type="hidden" name="ip" value="<?= htmlspecialchars($entry['ip']) ?>">
                                         <button type="submit" class="btn btn-danger btn-small" onclick="return confirm('Remove from whitelist?')">
@@ -857,9 +702,8 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                 <button class="modal-close" onclick="hideBlockModal()">&times;</button>
             </div>
             
-            <!-- AP-02: CSRF Token in Form -->
             <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                <input type="hidden" name="dashboard_csrf" value="<?= htmlspecialchars($_SESSION['dashboard_csrf']) ?>">
                 <input type="hidden" name="action" value="block_ip">
                 <input type="hidden" name="ip" id="blockIP">
                 <input type="hidden" name="userAgent" id="blockUserAgent">
@@ -898,9 +742,8 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                 <button class="modal-close" onclick="hideWhitelistModal()">&times;</button>
             </div>
             
-            <!-- AP-02: CSRF Token in Form -->
             <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                <input type="hidden" name="dashboard_csrf" value="<?= htmlspecialchars($_SESSION['dashboard_csrf']) ?>">
                 <input type="hidden" name="action" value="whitelist_ip">
                 
                 <div class="form-group">
@@ -926,7 +769,18 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
             document.getElementById('dashboard').style.display = 'none';
             
             try {
-                const response = await fetch('dashboard-api.php');
+                const response = await fetch('dashboard-api.php', { credentials: 'same-origin' });
+                // If the server redirected to HTML (login page) or returned non-JSON,
+                // handle gracefully and surface a helpful error instead of throwing
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status + ' ' + response.statusText);
+                }
+                const ct = response.headers.get('content-type') || '';
+                if (!ct.includes('application/json')) {
+                    const text = await response.text();
+                    // likely an HTML login redirect — show first 200 chars safely
+                    throw new Error('Unexpected non-JSON response: ' + text.slice(0, 200));
+                }
                 const data = await response.json();
                 
                 if (data.status === 'ok') {
@@ -972,8 +826,6 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                         </tr>
                     `;
                 }
-            } else {
-                topIPsBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#8b949e;">No data</td></tr>';
             }
             
             const blockReasonsBody = document.getElementById('blockReasonsBody');
@@ -989,7 +841,7 @@ $csrfToken = htmlspecialchars($_COOKIE['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8')
                     `;
                 }
             } else {
-                blockReasonsBody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:#8b949e;">No blocks today</td></tr>';
+                blockReasonsBody.innerHTML = '<tr><td colspan="2">No blocks today</td></tr>';
             }
         }
         
