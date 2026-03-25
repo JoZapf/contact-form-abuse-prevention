@@ -169,6 +169,10 @@ The test suite covers access control (19 blocked paths → 403), CORS header val
 
 ---
 
+## Disclaimer
+
+This project is a learning and portfolio project. It is provided as-is, without warranty of any kind. The security measures described in this documentation reflect the author's best efforts at the time of implementation but do not constitute a professional security audit or guarantee. Use at your own risk. The author assumes no liability for damages resulting from the use of this software.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
