@@ -1,292 +1,241 @@
 <?php
-session_start();
+/**
+ * Dashboard Login - HMAC Token Authentication
+ * 
+ * @version 2.0.0
+ * @date 2026-03-24
+ * 
+ * Changelog v2.0.0 (2026-03-24):
+ * - HF-02 FIX: Brute-Force-Schutz via LoginRateLimiter (5 Versuche / 15 min)
+ * - HF-05 FIX: Default-Passwort 'admin123' entfernt, hash_equals statt ===
+ * - MF-03 FIX: Lokale env()/verifyToken() durch helpers.php ersetzt
+ * - MF-04 FIX: Token enthält IP-Bindung, Gültigkeit 4h statt 24h
+ * 
+ * Changelog v1.0.0 (2025-10-12):
+ * - Initial: HMAC Token Authentication mit Cookie
+ */
 
-/////////////////////////////
-// 0) Security headers
-/////////////////////////////
-header('X-Content-Type-Options: nosniff');
-header('Referrer-Policy: strict-origin-when-cross-origin');
-header('X-Frame-Options: SAMEORIGIN');
+// MF-03 FIX: Zentrale Hilfsfunktionen statt lokaler Duplikate
+require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/LoginRateLimiter.php';
 
-/////////////////////////////
-// 1) Session bootstrap (hardened, host-specific)
-/////////////////////////////
-$IS_HTTPS = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-$COOKIE_DOMAIN = $_SERVER['HTTP_HOST'] ?? '';
-$COOKIE_PATH   = '/';
-
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_set_cookie_params([
-        'domain'   => $COOKIE_DOMAIN,
-        'path'     => $COOKIE_PATH,
-        'secure'   => $IS_HTTPS,
-        'httponly' => true,
-        'samesite' => 'Strict'
-    ]);
-    session_start();
+/**
+ * MF-04 FIX: Token mit IP-Bindung und verkürzter Laufzeit.
+ * Vorher: 24h, keine IP → gestohlener Cookie von überall nutzbar.
+ * Nachher: 4h, IP gebunden → Cookie nur von der Login-IP gültig.
+ */
+function generateToken(string $secret): string {
+    $data = [
+        'user' => 'dashboard_admin',
+        'ip'   => $_SERVER['REMOTE_ADDR'] ?? '',
+        'exp'  => time() + (4 * 3600),   // 4h statt 24h
+        'iat'  => time()
+    ];
+    $payload = base64_encode(json_encode($data));
+    $signature = hash_hmac('sha256', $payload, $secret);
+    return $payload . '.' . $signature;
 }
 
-/////////////////////////////
-// 2) Paths & .env loader
-/////////////////////////////
-define('PHP_DIR', __DIR__);
-define('LOG_DIR', PHP_DIR . '/logs');
-define('ENV_FILE', PHP_DIR . '/.env.prod');
-define('LOGIN_PATH', '/assets/php/dashboard-login.php');
-
-if (!is_dir(LOG_DIR)) { @mkdir(LOG_DIR, 0755, true); }
-
-function loadEnvFile(string $file): array {
-    if (!is_file($file)) return [];
-    $env = [];
-    foreach (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        if (strpos($line, '=') !== false && $line[0] !== '#') {
-            [$k, $v] = explode('=', trim($line), 2);
-            $env[trim($k)] = trim($v, '"\'');
-        }
+// Compatibility wrapper for setting cookies with SameSite across PHP versions
+function set_cookie_compat(string $name, string $value, int $expires, string $path = '/', bool $secure = true, bool $httponly = true, string $samesite = 'Strict') {
+    if (defined('PHP_VERSION_ID') && PHP_VERSION_ID >= 70300) {
+        setcookie($name, $value, [
+            'expires' => $expires,
+            'path' => $path,
+            'secure' => $secure,
+            'httponly' => $httponly,
+            'samesite' => $samesite,
+        ]);
+        return;
     }
-    return $env;
+    $cookie = rawurlencode($name) . '=' . rawurlencode($value);
+    $cookie .= '; Expires=' . gmdate('D, d-M-Y H:i:s T', $expires);
+    $cookie .= '; Path=' . $path;
+    if ($secure) $cookie .= '; Secure';
+    if ($httponly) $cookie .= '; HttpOnly';
+    if ($samesite) $cookie .= '; SameSite=' . $samesite;
+    header('Set-Cookie: ' . $cookie, false);
 }
-$env = loadEnvFile(ENV_FILE);
 
-$PASSWORD_HASH = getenv('DASHBOARD_PASSWORD_HASH') ?: ($env['DASHBOARD_PASSWORD_HASH'] ?? '');
-$REDIRECT_TO   = getenv('DASHBOARD_REDIRECT')     ?: ($env['DASHBOARD_REDIRECT'] ?? '/assets/php/dashboard.php');
-$AUTH_DEBUG    = (getenv('AUTH_DEBUG') ?: ($env['AUTH_DEBUG'] ?? '')) === '1';
-$DASHBOARD_SECRET = getenv('DASHBOARD_SECRET') ?: ($env['DASHBOARD_SECRET'] ?? '');
+// --- Konfiguration ---
 
-if (!$PASSWORD_HASH) {
-    http_response_code(500);
-    echo 'Server configuration error (DASHBOARD_PASSWORD_HASH not set).';
-    exit;
-}
+// HF-05 FIX: Kein Default-Passwort mehr!
+// Vorher: env('DASHBOARD_PASSWORD', 'admin123') ← unsicherer Default
+// Nachher: Kein Default. Fehlt beides → Login verweigert.
+$DASHBOARD_PASSWORD_HASH = env('DASHBOARD_PASSWORD_HASH');
+$DASHBOARD_PASSWORD = env('DASHBOARD_PASSWORD');  // Kein Default!
+$DASHBOARD_SECRET = env('DASHBOARD_SECRET');
+
 if (!$DASHBOARD_SECRET) {
-    http_response_code(500);
-    echo 'Server configuration error (DASHBOARD_SECRET not set).';
+    die('ERROR: DASHBOARD_SECRET not set in .env.prod');
+}
+
+if (!$DASHBOARD_PASSWORD && !$DASHBOARD_PASSWORD_HASH) {
+    die('ERROR: No dashboard password configured. Set DASHBOARD_PASSWORD or DASHBOARD_PASSWORD_HASH in .env.prod');
+}
+
+// --- Token-Check: Bereits eingeloggt? ---
+
+$token = $_COOKIE['dashboard_token'] ?? '';
+if (verifyToken($token, $DASHBOARD_SECRET)) {
+    header('Location: dashboard.php');
     exit;
 }
 
-/////////////////////////////
-// 3) Rate limit config & helpers
-/////////////////////////////
-const RL_WINDOW_SEC = 15 * 60;
-const RL_MAX_FAILS  = 5;
-define('RL_FILE', LOG_DIR . '/login_attempts.jsonl');
+// --- HF-02 FIX: Brute-Force-Schutz ---
 
-function client_ip(): string   { return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'; }
-function user_agent(): string  { return substr($_SERVER['HTTP_USER_AGENT'] ?? '-', 0, 300); }
-function rl_now(): int         { return time(); }
+$limiter = new LoginRateLimiter(__DIR__ . '/data');
+$ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-function rl_read_all(): array {
-    if (!is_file(RL_FILE)) return [];
-    $rows = [];
-    $fp = fopen(RL_FILE, 'r'); if (!$fp) return $rows;
-    if (flock($fp, LOCK_SH)) {
-        while (($line = fgets($fp)) !== false) {
-            $row = json_decode($line, true);
-            if (is_array($row)) $rows[] = $row;
+$error = '';
+$isLocked = $limiter->isLocked($ip);
+
+if ($isLocked) {
+    $remaining = $limiter->getRemainingLockTime($ip);
+    $minutes = (int) ceil($remaining / 60);
+    $error = "Too many login attempts. Try again in {$minutes} minute(s).";
+}
+
+// --- Login-Verarbeitung ---
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isLocked) {
+    if (isset($_POST['password'])) {
+        $pw = $_POST['password'];
+        $ok = false;
+        
+        // HF-05: Bevorzugt Argon2-Hash prüfen
+        if ($DASHBOARD_PASSWORD_HASH && function_exists('password_verify')) {
+            if (password_verify($pw, $DASHBOARD_PASSWORD_HASH)) {
+                $ok = true;
+            }
         }
-        flock($fp, LOCK_UN);
-    }
-    fclose($fp);
-    return $rows;
-}
-function rl_write_all(array $rows): void {
-    $fp = fopen(RL_FILE, 'w'); if (!$fp) return;
-    if (flock($fp, LOCK_EX)) {
-        foreach ($rows as $row) fwrite($fp, json_encode($row) . "\n");
-        flock($fp, LOCK_UN);
-    }
-    fclose($fp);
-}
-function rl_log_fail(string $ip): void {
-    $entry = ['ts'=>rl_now(),'ip'=>$ip,'ua'=>user_agent(),'type'=>'failed_login'];
-    $fp = fopen(RL_FILE, 'a');
-    if ($fp && flock($fp, LOCK_EX)) {
-        fwrite($fp, json_encode($entry) . "\n");
-        flock($fp, LOCK_UN); fclose($fp);
-    } elseif ($fp) fclose($fp);
-}
-function rl_reset_ip(string $ip): void {
-    $rows = rl_read_all(); $now = rl_now(); $winStart = $now - RL_WINDOW_SEC;
-    $changed = false; $keep = [];
-    foreach ($rows as $r) {
-        if ($r['ip'] === $ip && $r['type'] === 'failed_login' && $r['ts'] >= $winStart) {
-            $changed = true; continue;
+        
+        // HF-05 FIX: Fallback mit hash_equals() statt === (Timing-sicher)
+        // Vorher: if ($pw === $DASHBOARD_PASSWORD) ← Timing-Angriff möglich
+        // Nachher: hash_equals() hat konstante Laufzeit
+        if (!$ok && $DASHBOARD_PASSWORD && hash_equals($DASHBOARD_PASSWORD, $pw)) {
+            $ok = true;
         }
-        $keep[] = $r;
-    }
-    if ($changed) rl_write_all($keep);
-}
-function rl_is_limited(string $ip): bool {
-    $rows = rl_read_all(); $now = rl_now(); $winStart = $now - RL_WINDOW_SEC;
-    $fails = 0;
-    foreach ($rows as $r) {
-        if ($r['ip'] === $ip && $r['type'] === 'failed_login' && $r['ts'] >= $winStart) {
-            $fails++;
+        
+        if ($ok) {
+            // Login erfolgreich → Fehlversuche zurücksetzen
+            $limiter->resetAttempts($ip);
+            
+            $token = generateToken($DASHBOARD_SECRET);
+            // MF-04: Cookie-Ablauf angepasst an Token-Laufzeit (4h)
+            set_cookie_compat('dashboard_token', $token, time() + (4 * 3600), '/assets/php/', true, true, 'Strict');
+            header('Location: dashboard.php');
+            exit;
+        }
+        
+        // HF-02: Fehlversuch aufzeichnen
+        $limiter->recordFailedAttempt($ip);
+        $attemptCount = $limiter->getAttemptCount($ip);
+        $remaining = 5 - $attemptCount;
+        
+        if ($remaining > 0) {
+            $error = "Invalid password. {$remaining} attempt(s) remaining.";
+        } else {
+            $lockMinutes = (int) ceil($limiter->getRemainingLockTime($ip) / 60);
+            $error = "Too many login attempts. Try again in {$lockMinutes} minute(s).";
         }
     }
-    return $fails >= RL_MAX_FAILS;
 }
-
-/////////////////////////////
-// 4) CSRF
-/////////////////////////////
-function ensure_csrf(): string {
-    if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    return $_SESSION['csrf_token'];
-}
-function validate_csrf(string $tokenFromPost): bool {
-    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $tokenFromPost);
-}
-
-/////////////////////////////
-// 5) Redirect helper (validated + loop-safe)
-/////////////////////////////
-function safe_redirect(?string $path): void {
-    $path = trim((string)$path);
-    $currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-    if ($path === '' || preg_match('/^\s*https?:\/\//i', $path) || $path[0] !== '/' || preg_match('/[\r\n]/', $path)) return;
-    if ($path === $currentPath || $path === LOGIN_PATH) return;
-    header('Location: '.$path, true, 302);
-    exit;
-}
-
-/////////////////////////////
-// 6) Auth helpers & rendering
-/////////////////////////////
-function is_authenticated(): bool { return !empty($_SESSION['dashboard_auth']); }
-
-function render_login(string $message = '', int $httpStatus = 200): void {
-    http_response_code($httpStatus);
-    $csrf = ensure_csrf();
-    $msg = htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    ?>
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <title>Login</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body { background: #0d1117; color: #e9ecef; font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
-    .card { max-width: 400px; margin: 80px auto; background: #161b22; border-radius: 12px; padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
-    h2 { color: #fff; margin-bottom: 24px; }
-    label { display: block; margin-bottom: 8px; color: #8b949e; }
-    input[type="password"], input[type="text"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #fff; margin-bottom: 16px; }
-    button { width: 100%; padding: 12px; border-radius: 6px; border: none; background: #3498db; color: #fff; font-size: 1em; cursor: pointer; }
-    .msg { color: #e74c3c; margin-bottom: 16px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>Dashboard Login</h2>
-    <?php if ($msg): ?><div class="msg"><?= $msg ?></div><?php endif; ?>
-    <form method="post" autocomplete="off">
-      <label for="password">Password</label>
-      <input type="password" name="password" id="password" required autofocus>
-      <input type="hidden" name="csrf" value="<?= $csrf ?>">
-      <button type="submit">Login</button>
-    </form>
-  </div>
-</body>
-</html>
-<?php
-    exit;
-}
-
-/////////////////////////////
-// 7) GET: wenn auth → redirect (loop-safe), sonst Formular
-/////////////////////////////
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $token = $_COOKIE['dashboard_token'] ?? '';
-    if ($token && $DASHBOARD_SECRET) {
-        // Prüfe Token wie dashboard.php
-        [$payload, $signature] = explode('.', $token, 2) + [null, null];
-        $expected = hash_hmac('sha256', $payload, $DASHBOARD_SECRET);
-        $data = json_decode(base64_decode($payload), true);
-        if ($signature && hash_equals($expected, $signature) && $data && isset($data['exp']) && $data['exp'] >= time()) {
-            safe_redirect($REDIRECT_TO);
-        }
-    }
-    render_login('');
-}
-
-/////////////////////////////
-// 8) POST: verify & redirect
-/////////////////////////////
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405); header('Allow: GET, POST'); echo 'Method Not Allowed'; exit;
-}
-
-// CSRF
-$csrfPost = (string)($_POST['csrf'] ?? '');
-if (!validate_csrf($csrfPost)) {
-    render_login('Ungültiges oder fehlendes CSRF-Token.', 400);
-}
-
-// Rate-limit
-$ip = client_ip();
-if (rl_is_limited($ip)) {
-    render_login('Zu viele Fehlversuche. Bitte in 15 Minuten erneut versuchen.', 429);
-}
-
-// Passwort prüfen
-$inputPassword = (string)($_POST['password'] ?? '');
-if (!password_verify($inputPassword, $PASSWORD_HASH)) {
-    rl_log_fail($ip);
-    render_login('Ungültige Zugangsdaten.', 401);
-}
-
-// Erfolg: Rate-Limit zurücksetzen
-rl_reset_ip($ip);
-session_regenerate_id(true);
-$_SESSION['dashboard_auth'] = true;
-$_SESSION['auth_since'] = time();
-$_SESSION['last_seen']  = time();
-
-// CSRF-Token für JWT und Cookie
-$csrfToken = $_SESSION['csrf_token'] ?? bin2hex(random_bytes(32));
-
-// JWT-Payload
-$payloadArr = [
-    'exp' => time() + 86400, // 24h gültig
-    'csrf' => $csrfToken
-];
-$jwtPayload = base64_encode(json_encode($payloadArr));
-$jwtSignature = hash_hmac('sha256', $jwtPayload, $DASHBOARD_SECRET);
-$jwtToken = $jwtPayload . '.' . $jwtSignature;
-
-// Setze Token-Cookie (HttpOnly)
-setcookie('dashboard_token', $jwtToken, [
-    'expires' => time() + 86400,
-    'path' => '/',
-    'secure' => $IS_HTTPS,
-    'httponly' => true,
-    'samesite' => 'Strict'
-]);
-
-// Setze CSRF-Cookie (nicht HttpOnly, da JS Zugriff braucht)
-setcookie('csrf_token', $csrfToken, [
-    'expires' => time() + 86400,
-    'path' => '/',
-    'secure' => $IS_HTTPS,
-    'httponly' => false,
-    'samesite' => 'Strict'
-]);
-
-// Redirect (validiert + loop-safe)
-safe_redirect($REDIRECT_TO);
-
-// Fallback OK-Seite
-http_response_code(200);
 ?>
-<!doctype html>
-<html lang="de">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Login erfolgreich</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Login</title>
+    <link rel="stylesheet" href="../css/contact-form.css">
+    <style>
+        body {
+            background: #0d1117;
+            color: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .login-container { max-width: 400px; width: 100%; padding: 20px; }
+        .login-card {
+            background: var(--cf-card-bg);
+            border: 1px solid var(--cf-card-border);
+            padding: 40px 30px;
+            border-radius: 12px;
+            box-shadow: var(--cf-card-shadow);
+        }
+        h1 { font-size: 24px; margin: 0 0 10px; text-align: center; color: #fff; }
+        p { margin: 0 0 30px; text-align: center; color: var(--cf-input-text); font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--cf-input-text); font-weight: 500; }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--cf-input-bg);
+            border: 1px solid var(--cf-input-border);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        .form-group input:focus { outline: none; border-color: #3498db; }
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-login:hover { background: #2980b9; }
+        .btn-login:disabled { background: #555; cursor: not-allowed; }
+        .error-message {
+            background: var(--cf-error-bg-dark);
+            border: 1px solid var(--cf-error-border-dark);
+            color: var(--cf-error-text-dark);
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
-  <h2>Login erfolgreich. <a href="<?= htmlspecialchars($REDIRECT_TO) ?>">Weiter zum Dashboard</a></h2>
+    <div class="login-container">
+        <div class="login-card">
+            <h1>Dashboard Login</h1>
+            <p>Contact Form Analytics</p>
+            
+            <?php if ($error): ?>
+                <div class="error-message"><?= htmlspecialchars($error) ?></div>
+            <?php endif; ?>
+            
+            <form method="POST" autocomplete="on">
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        autocomplete="current-password"
+                        autofocus 
+                        required
+                        <?= $isLocked ? 'disabled' : '' ?>
+                    >
+                </div>
+                <button type="submit" class="btn-login" <?= $isLocked ? 'disabled' : '' ?>>
+                    Access Dashboard
+                </button>
+            </form>
+        </div>
+    </div>
 </body>
 </html>

@@ -23,6 +23,10 @@
 # Contains actual production values (domains, secrets documentation)
 PRODUCTION-CONFIG.md
 
+# Server Permissions Documentation
+# Contains server-specific paths and deployment details
+assets/php/PERMISSIONS.md
+
 # Environment Configuration Files
 # Contains SMTP passwords, dashboard secrets, API keys
 .env
@@ -231,6 +235,23 @@ error.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+
+# ----------------------------------------------------------------------------
+# INTERNAL SECURITY AUDIT DOCUMENTATION
+# ----------------------------------------------------------------------------
+# Date-stamped audit context folders are kept locally, not in the repository.
+
+Documentation/20260325_*
+
+# Docker Compose environment (contains local credentials)
+.env.compose
+
+# Documentation backups and obsolete runbooks
+Documentation/.back.*
+Documentation/runbook-security*
+Documentation/Login-Security-Fix*
+Documentation/PRODUCTION-*
 
 
 # ----------------------------------------------------------------------------
