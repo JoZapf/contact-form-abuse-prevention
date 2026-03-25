@@ -165,7 +165,7 @@ All security measures are verified by automated tests:
 bash security-tests.sh
 ```
 
-The test suite covers access control (19 blocked paths → 403), CORS header validation, CSRF token generation, session cookie flags, and directory listing prevention. See [TESTING.md](Documentation/20260325_security-fix-kontext/TESTING.md) for the full test matrix and expected results.
+The test suite covers access control (19 blocked paths → 403), CORS header validation, CSRF token generation, session cookie flags, and directory listing prevention. See [TESTING.md](Documentation/TESTING.md) for the full test matrix and expected results.
 
 ---
 
