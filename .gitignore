@@ -224,6 +224,9 @@ coverage/
 .coverage
 htmlcov/
 
+# dev
+assets/php/.back.dashboard-login.php
+
 # PHPUnit
 .phpunit.result.cache
 phpunit.xml
