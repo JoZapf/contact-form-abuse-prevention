@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [5.1.0] — 2026-03-27
+
+### Disposable Email Detection (Phase 7)
+
+3-layer defense-in-depth architecture for blocking spam and throwaway email addresses, triggered by dashboard analysis showing `spam@evil.com` and `test@test.com` passing validation with Score 15 (Allowed).
+
+**All 43 automated security tests pass on production** (43 PASS, 0 FAIL, 1 expected WARN).
+
+#### Added
+
+- `checkSuspiciousPrefix()` — Hard-block (+30) for `spam@`, `test@`, `fake@`, `bot@`, `noreply@` etc.; soft-flag (+10) for `admin@`, `info@`, `contact@` etc.
+- `checkSuspiciousTLD()` — Scores free-registration TLDs (`.tk`, `.ml`, `.cf`, `.ga`, `.gq`) at +15
+- `checkDisposableAPI()` — Real-time check via [DeBounce Free Disposable API](https://disposable.debounce.io/) (free, no API key, 2s timeout, graceful fallback)
+- `data/domain-blacklist.txt` — 72,000+ disposable email domains, auto-updated weekly
+- `data/domain-blacklist-custom.txt` — Manual additions for domains identified in dashboard logs
+- `cron/update-domain-blacklist.sh` — Weekly cronjob merging upstream list with custom entries
+- `security-tests.sh` v2.0.0 — 12 new tests: blacklist file protection (T10), prefix blocking (T11), domain blacklist (T12), API reachability (T13)
+
+#### Changed
+
+- **`ContactFormValidator-v2.php`:** v2.1.0 → v2.2.0 — 3 new check methods, config extended with prefix/TLD/API settings
+- **Domain blacklist score:** 50 → 60 (ensures blocking above threshold of 30)
+- **`.htaccess`:** v2.0.0 → v2.1.0 — `.txt` files blocked via `<FilesMatch>` (defense-in-depth)
+- **`.gitignore`:** `data/*` with negation for `domain-blacklist*.txt` (blacklists versioned, runtime JSON ignored)
+
+#### Fixed
+
+- `contact-form-logic.js` — Relative path (`assets/php/...`) → absolute path (`/assets/php/...`) for form handler URL. Pre-existing bug: form submission returned 404 on all subpages due to path resolution against current URL
+
+#### Credits
+
+- Domain blacklist: [disposable-email-domains/disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) (CC0 license)
+- Disposable API: [DeBounce](https://disposable.debounce.io/) (free, no authentication required)
+
+---
+
 ## [5.0.0] — 2026-03-25
 
 ### Comprehensive Security Hardening

@@ -4,9 +4,9 @@
 
 This project implements defense-in-depth security practices across DNS, HTTP, session, and application layers. The system underwent a comprehensive security audit in March 2026 following a real-world abuse incident, resulting in 14 findings that were addressed in a structured 6-phase hardening plan.
 
-**Current Security Status:** 🟢 Hardened (v5.0.0 — 14/14 findings addressed)  
+**Current Security Status:** 🟢 Hardened (v5.1.0 — 14/14 findings addressed + Phase 7 spam filtering)  
 **Last Audit:** March 2026  
-**Automated Tests:** 31 passing (30 PASS, 1 expected WARN)
+**Automated Tests:** 43 passing (43 PASS, 0 FAIL, 1 expected WARN)
 
 ---
 
@@ -14,11 +14,12 @@ This project implements defense-in-depth security practices across DNS, HTTP, se
 
 | Version | Supported | Security Status |
 |---------|-----------|-----------------|
-| 5.0.x | ✅ Yes | 🟢 Fully hardened |
-| 4.2.x | ⚠️ Limited | 🟠 Upgrade strongly recommended |
+| 5.1.x | ✅ Yes | 🟢 Fully hardened + spam filtering |
+| 5.0.x | ⚠️ Limited | 🟠 Missing Phase 7 spam filtering |
+| 4.2.x | ❌ No | 🔴 Upgrade strongly recommended |
 | < 4.2 | ❌ No | 🔴 End of Life |
 
-**Recommendation:** Always use the latest version (5.0.x). Versions prior to 5.0.0 have known security gaps that are addressed in the current release.
+**Recommendation:** Always use the latest version (5.1.x). Versions prior to 5.0.0 have known security gaps that are addressed in the current release.
 
 ---
 
@@ -34,7 +35,7 @@ Email authentication is configured to prevent domain spoofing:
 
 ### HTTP Layer — Access Control
 
-The `.htaccess` configuration (v2.0.0) enforces strict access control:
+The `.htaccess` configuration (v2.1.0) enforces strict access control:
 
 - **Diagnostic endpoints** are blocked from public access — these include any development or debugging scripts that could expose server configuration
 - **Environment files** (all `.env*` variants) are denied via HTTP
@@ -62,7 +63,7 @@ CSRF tokens are generated per session, validated with `hash_equals()` (timing-sa
 - CORS locked to the configured origin domain (no wildcards)
 - Session-based CSRF token required for form submission
 - Server-side captcha — solution stored in PHP session, never exposed to the client
-- Multi-layer spam detection: honeypot fields, submission timing analysis, keyword scoring, domain blacklist
+- Multi-layer spam detection: honeypot fields, submission timing analysis, keyword scoring, suspicious prefix detection (hard-block and soft-flag), suspicious TLD scoring, domain blacklist (72,000+ disposable domains from [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains), CC0 license), and real-time disposable email API verification via [DeBounce](https://disposable.debounce.io/) (free, no API key required)
 - Confirmation email rate limiting: maximum 1 per email address per 24 hours (addresses stored as SHA-256 hashes)
 
 **Dashboard protection:**
@@ -111,6 +112,7 @@ A structured security audit identified 14 findings across 4 severity levels. All
 | 4 | Captcha hardening — moved solution from client HTML to server session | Application |
 | 5 | Dashboard hardening — brute-force protection, CSRF on all forms, password hash enforcement, centralized helpers, token IP binding | Application |
 | 6 | Cleanup — IP detection hardened, confirmation email rate limiting, code consolidation | Application |
+| 7 | Disposable email detection — 3-layer spam filtering: suspicious prefix/TLD scoring, 72k+ domain blacklist (auto-updated weekly), DeBounce API check with fallback | Application |
 
 Additionally, DNS authentication (SPF/DKIM/DMARC) was configured as a prerequisite before the application-level fixes.
 
@@ -132,8 +134,12 @@ The project includes a test suite (`security-tests.sh`) that verifies all harden
 | Directory listing | 1 | No "Index of" response on directory access |
 | Document blocking | 1+ | Configuration documents return 403 |
 | Session security | 1 | Cookie flags include HttpOnly, Secure, SameSite |
+| Blacklist file protection | 4 | domain-blacklist.txt, custom list, JSON data files return 403 |
+| Spam prefix blocking | 3 | Full submit flow: spam@, test@, fake@ prefixes are blocked |
+| Domain blacklist | 3 | Full submit flow: mailinator, guerrillamail, yopmail are blocked |
+| Disposable API | 2 | DeBounce API reachable, correct classification of disposable/legit |
 
-**Latest result:** 30 PASS, 1 expected WARN (rate limiting triggers on repeated test runs from the same IP — this confirms the protection works).
+**Latest result:** 43 PASS, 0 FAIL, 1 expected WARN (CSRF migration mode — contact form CSRF only enforced when init endpoint was called; strict mode pending frontend update).
 
 ### Running Tests
 
@@ -179,7 +185,7 @@ curl -s https://yourdomain.com/assets/php/ | grep -i "index of"
 
 | # | Category | Status | Implementation |
 |---|----------|--------|----------------|
-| A01 | Broken Access Control | ✅ Protected | `.htaccess` v2.0.0, HMAC auth, CORS domain lock, CSRF tokens |
+| A01 | Broken Access Control | ✅ Protected | `.htaccess` v2.1.0, HMAC auth, CORS domain lock, CSRF tokens |
 | A02 | Cryptographic Failures | ✅ Protected | Argon2id hashing, HMAC-SHA256, HTTPS enforcement, secure cookies |
 | A03 | Injection | ✅ Protected | Input sanitization (`htmlspecialchars` + `ENT_QUOTES`), no SQL (JSON storage) |
 | A04 | Insecure Design | ✅ Protected | Defense-in-depth, fail-fast configuration, no silent defaults |
@@ -188,7 +194,7 @@ curl -s https://yourdomain.com/assets/php/ | grep -i "index of"
 | A07 | Auth & Session Failures | ✅ Protected | Argon2id, IP-bound tokens, 4h lifetime, brute-force lockout, session hardening |
 | A08 | Data Integrity Failures | ✅ Protected | CSRF tokens (contact form + all 8 dashboard forms), HMAC signatures |
 | A09 | Logging & Monitoring | ✅ Protected | Extended logging, audit trails, GDPR-compliant anonymization |
-| A10 | SSRF | ✅ N/A | No external requests from user input |
+| A10 | SSRF | ✅ Protected | Outbound API calls (DeBounce) use hardcoded URL — no user-controlled destinations. Timeout enforced (2s) |
 
 ### CWE Coverage
 
@@ -346,6 +352,7 @@ These items are intentionally not addressed:
 
 | Version | Date | Security Scope |
 |---------|------|----------------|
+| 5.1.0 | 2026-03-27 | Phase 7: 3-layer disposable email detection (prefix/TLD scoring, 72k+ domain blacklist from [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains) (CC0), [DeBounce](https://disposable.debounce.io/) API check), `.htaccess` v2.1.0 (.txt file protection), security-tests.sh v2.0.0 (43 tests), contact-form-logic.js subpage path fix |
 | 5.0.0 | 2026-03-25 | Comprehensive hardening: 14 findings, 6 phases, 31 automated tests |
 | 4.2.0 | 2025-10-05 | Dashboard CSRF protection (Double Submit Cookie + JWT binding) |
 | 4.1.0 | 2025-10-05 | Dashboard API authentication, CORS, PII masking |
@@ -357,5 +364,5 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete version history including non-
 ---
 
 **Last Updated:** March 2026  
-**Security Status:** 🟢 Hardened (v5.0.0)  
+**Security Status:** 🟢 Hardened (v5.1.0 — 14/14 findings addressed + Phase 7 spam filtering, 43 tests passing)  
 **Next Review:** April 2026 (DMARC policy upgrade, frontend CSRF integration)
